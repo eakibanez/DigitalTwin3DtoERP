@@ -42,6 +42,10 @@
 build/
 Build/
 build-*/
+bin/
+obj/
+dist/
+**/node_modules/
 
 # CMake generated files
 CMakeFiles/
@@ -54,6 +58,12 @@ compile_commands.json
 # Temporary files
 *.tmp
 *.log
+services/position-worker/runtime-data/
+services/position-worker/.venv/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+*.tsbuildinfo
 *.bak
 *.swp
 

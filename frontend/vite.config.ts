@@ -1,0 +1,31 @@
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    host: true,
+    allowedHosts: [".trycloudflare.com"],
+    strictPort: false,
+    proxy: {
+      "/api": "http://127.0.0.1:5080",
+      "/position": "http://127.0.0.1:8001",
+    },
+  },
+  build: {
+    chunkSizeWarningLimit: 1000,
+    rolldownOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules/three") || id.includes("node_modules/@react-three/")) {
+            return "three";
+          }
+          if (id.includes("node_modules/@fluentui/")) {
+            return "fluent";
+          }
+          return undefined;
+        },
+      },
+    },
+  },
+});

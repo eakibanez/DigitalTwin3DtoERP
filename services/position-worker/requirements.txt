@@ -1,0 +1,6 @@
+fastapi==0.115.4
+uvicorn[standard]==0.32.0
+pydantic==2.9.2
+python-multipart==0.0.17
+# Optional: enables QR decoding and ArUco marker detection. The worker falls back safely without it.
+opencv-contrib-python-headless>=4.8,<5

@@ -1,0 +1,7 @@
+CREATE TABLE twin_scene(id nvarchar(64) NOT NULL PRIMARY KEY,warehouse_id nvarchar(64) NOT NULL,manifest_key nvarchar(512) NOT NULL,revision nvarchar(64) NOT NULL);
+CREATE TABLE twin_entity_binding(id nvarchar(64) NOT NULL PRIMARY KEY,scene_id nvarchar(64) NOT NULL,entity_type nvarchar(64) NOT NULL,entity_id nvarchar(128) NOT NULL);
+CREATE TABLE twin_asset(id nvarchar(64) NOT NULL PRIMARY KEY,blob_key nvarchar(512) NOT NULL,checksum nvarchar(128) NULL,revision nvarchar(64) NOT NULL);
+CREATE TABLE simulation_run(id nvarchar(64) NOT NULL PRIMARY KEY,scenario nvarchar(128) NOT NULL,parameter_json nvarchar(max) NOT NULL,algorithm_version nvarchar(64) NOT NULL,seed int NOT NULL,status nvarchar(32) NOT NULL,created_utc datetime2 NOT NULL,actor nvarchar(256) NULL,trace_id nvarchar(128) NOT NULL);
+CREATE TABLE simulation_event(run_id nvarchar(64) NOT NULL,sequence_no int NOT NULL,event_utc datetime2 NOT NULL,entity_id nvarchar(128) NOT NULL,x float NOT NULL,y float NOT NULL,z float NOT NULL,confidence float NOT NULL,status nvarchar(32) NOT NULL,raw_measurement_summary nvarchar(1000) NULL,PRIMARY KEY(run_id,sequence_no));
+CREATE TABLE simulation_calibration(id nvarchar(64) NOT NULL PRIMARY KEY,name nvarchar(128) NOT NULL,version nvarchar(32) NOT NULL);
+CREATE TABLE integration_audit(id nvarchar(64) NOT NULL PRIMARY KEY,actor nvarchar(256) NULL,operation nvarchar(128) NOT NULL,endpoint nvarchar(256) NOT NULL,outcome nvarchar(32) NOT NULL,redacted_payload_hash nvarchar(128) NULL);
