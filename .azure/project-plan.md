@@ -18,6 +18,7 @@ The existing PHP/IIS EIS-ERP remains the system of record. A new ASP.NET Core We
 - Support Microsoft Entra ID/OAuth2 authentication and authorization.
 - Allow users to edit reflector, receiver, noise, calibration, and confidence parameters.
 - Produce deterministic simulation runs, position events, confidence/status, and replay controls.
+- Scan LiDAR-enabled iPhone rooms with RoomPlan, bind scans to building/floor/room, and render measured surfaces in the web Digital Twin.
 - Define complete boundaries for later deployment without prematurely implementing production infrastructure.
 
 ### Non-Goals
@@ -37,6 +38,7 @@ The existing PHP/IIS EIS-ERP remains the system of record. A new ASP.NET Core We
 
 ### Components
 - **Frontend**: React + TypeScript, React Three Fiber/Three.js, Fluent UI v9. Hosts scene, ERP panels, parameter editor, replay controls, and API client.
+- **iOS scanner**: SwiftUI + Apple RoomPlan on a LiDAR-capable iPhone. Uploads versioned room surfaces, transforms, and dimensions in meters to the Integration API.
 - **Integration API**: ASP.NET Core Web API. Validates Entra tokens, exposes versioned `/api/v1` endpoints, maps ERP contracts, owns demo orchestration and audit metadata.
 - **AI worker**: Python + FastAPI. Implements PDF-derived reflector/receiver calculation, noise and calibration models, confidence scoring, deterministic seed/replay, and health endpoints.
 - **Existing ERP**: PHP/IIS application and SQL Server/Azure SQL source-of-record boundary. Access is through an adapter/repository and documented read contracts.
@@ -63,6 +65,8 @@ The existing PHP/IIS EIS-ERP remains the system of record. A new ASP.NET Core We
 - `GET /api/v1/simulations/{runId}`
 - `GET /api/v1/simulations/{runId}/events`
 - `GET /api/v1/assets/{assetId}/download-url`
+- `GET /api/v1/buildings`, `GET /api/v1/buildings/{buildingId}/floors`, `GET /api/v1/floors/{floorId}/rooms`
+- `POST /api/v1/rooms/{roomId}/scans`, `GET /api/v1/rooms/{roomId}/scans/latest`
 - `GET /health/live`, `GET /health/ready`
 
 Commands that could change ERP state are deferred or protected behind an explicit feature flag and separate authorization policy.
@@ -76,6 +80,7 @@ Commands that could change ERP state are deferred or protected behind an explici
 - `simulation_run`: run id, scenario, parameter JSON, algorithm version, seed, status, timestamps, user and trace id.
 - `simulation_event`: run id, sequence, timestamp, entity id, x/y/z, confidence, status, raw measurement summary.
 - `simulation_calibration`: named calibration profile and version.
+- `room_scan` / `room_surface`: versioned building/floor/room capture metadata and validated local-coordinate surface geometry.
 - `integration_audit`: actor, operation, endpoint, ERP correlation id, outcome, and redacted payload hash.
 
 ERP source entities remain external/read-only in the demo: `items`, `warehouses`, `inventory`, `receiving`, `picking`, `work_orders`.
@@ -100,6 +105,7 @@ ERP source entities remain external/read-only in the demo: `items`, `warehouses`
 
 ### Repository structure
 - `frontend/` React application, API client, scene components, UI tests.
+- `ios/RoomPlanScanner/` native iOS RoomPlan capture app (requires macOS/Xcode and LiDAR iPhone for device validation).
 - `services/integration-api/` ASP.NET Core solution, controllers, application services, ERP adapter, auth, OpenAPI.
 - `services/position-worker/` Python package, FastAPI routes, simulation engine, fixtures, tests.
 - `database/migrations/` SQL Server/Azure SQL migrations for Twin and simulation tables.
@@ -121,6 +127,7 @@ Required configuration includes Entra tenant/client/audience, ERP base URL and s
 - Validate JWT issuer, audience, signature, expiry, scopes, and tenant; use Entra OAuth2 Authorization Code + PKCE in the frontend.
 - Enforce API policies: `Twin.Read`, `Simulation.Run`, `Simulation.Configure`, `Audit.Read`; default deny.
 - Apply least-privilege SQL and Blob identities, private containers, HTTPS, strict CORS, security headers, and request-size limits.
+- Require a session-specific high-entropy access token for development room-scan upload/read endpoints; do not expose room geometry over an unauthenticated tunnel.
 - Validate all geometry/numeric inputs with safe bounds; prevent SSRF by allow-listing ERP/worker URLs; sanitize asset paths and filenames.
 - Treat ERP data as sensitive: minimize fields, redact logs, and retain audit records according to policy.
 - Add cancellation/timeouts, bounded simulation workload, idempotency key for run creation, correlation IDs, and clear degraded-mode behavior.
@@ -135,6 +142,7 @@ Required configuration includes Entra tenant/client/audience, ERP base URL and s
 - Contract tests between frontend/API and API/worker.
 - SQL migration tests and synthetic fixture verification.
 - E2E smoke test: sign in → choose warehouse → load scene → inspect ERP entity → edit parameters → run/replay → see confidence/events.
+- Room scan contract test: select building/floor/room → upload bounded RoomPlan geometry → retrieve latest scan → render surfaces in 3D.
 - Security checks: dependency scanning, secret scanning, OWASP API cases, token and authorization negative tests.
 
 ### Acceptance criteria

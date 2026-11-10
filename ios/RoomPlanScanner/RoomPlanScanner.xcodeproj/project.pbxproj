@@ -1,0 +1,191 @@
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+		000000000000000000000001 = {
+			isa = PBXBuildFile;
+			fileRef = 000000000000000000000002;
+		};
+		000000000000000000000002 = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = RoomPlanScannerApp.swift;
+			sourceTree = "<group>";
+		};
+		000000000000000000000003 = {
+			isa = PBXFileReference;
+			lastKnownFileType = text.plist.xml;
+			path = Info.plist;
+			sourceTree = "<group>";
+		};
+		000000000000000000000004 = {
+			isa = PBXFileReference;
+			explicitFileType = wrapper.application;
+			includeInIndex = 0;
+			path = RoomPlanScanner.app;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		000000000000000000000005 = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000006,
+				000000000000000000000007,
+			);
+			sourceTree = "<group>";
+		};
+		000000000000000000000006 = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000002,
+				000000000000000000000003,
+			);
+			path = RoomPlanScanner;
+			sourceTree = "<group>";
+		};
+		000000000000000000000007 = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000004,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		000000000000000000000008 = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 000000000000000000000009;
+			proxyType = 1;
+			remoteGlobalIDString = 000000000000000000000010;
+			remoteInfo = RoomPlanScanner;
+		};
+		000000000000000000000009 = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					000000000000000000000010 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+				};
+			};
+			buildConfigurationList = 000000000000000000000016;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 000000000000000000000005;
+			productRefGroup = 000000000000000000000007;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				000000000000000000000010,
+			);
+		};
+		000000000000000000000010 = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 000000000000000000000019;
+			buildPhases = (
+				000000000000000000000013,
+				000000000000000000000014,
+				000000000000000000000015,
+			);
+			buildRules = ();
+			dependencies = ();
+			name = RoomPlanScanner;
+			productName = RoomPlanScanner;
+			productReference = 000000000000000000000004;
+			productType = "com.apple.product-type.application";
+		};
+		000000000000000000000013 = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				000000000000000000000001,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		000000000000000000000014 = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		000000000000000000000015 = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		000000000000000000000016 = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000017,
+				000000000000000000000018,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		000000000000000000000017 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		000000000000000000000018 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		000000000000000000000019 = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000020,
+				000000000000000000000021,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		000000000000000000000020 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = RoomPlanScanner/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.RoomPlanScanner;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		000000000000000000000021 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = RoomPlanScanner/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.RoomPlanScanner;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+	};
+	rootObject = 000000000000000000000009;
+}

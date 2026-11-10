@@ -1,0 +1,8 @@
+.room-workspace{display:grid;grid-template-columns:240px 1fr 240px;min-height:calc(100vh - 152px)}
+.room-controls,.room-details{padding:22px;border-right:1px solid #284857;background:#101e26}
+.room-details{border-left:1px solid #284857;border-right:0}
+.room-stage{position:relative;min-height:600px}
+.room-stage canvas{height:100%!important}
+.room-stage-label{position:absolute;bottom:15px;left:20px;background:#10232ccc;padding:8px;border-radius:4px}
+.room-hint{color:#8ba5b2;font-size:.9rem;line-height:1.45}
+@media(max-width:900px){.room-workspace{grid-template-columns:1fr}.room-stage{height:55vh;min-height:380px}.room-controls,.room-details{border:0;border-bottom:1px solid #284857}}

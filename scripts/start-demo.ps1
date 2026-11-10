@@ -30,6 +30,18 @@ if (-not (Test-Path (Join-Path $frontend "node_modules"))) {
     throw "Frontend dependencies are missing. Run: npm --prefix `"$frontend`" install"
 }
 
+if ([string]::IsNullOrWhiteSpace($env:ROOM_SCAN_ACCESS_TOKEN)) {
+    $tokenBytes = New-Object byte[] 32
+    $randomNumberGenerator = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $randomNumberGenerator.GetBytes($tokenBytes)
+    } finally {
+        $randomNumberGenerator.Dispose()
+    }
+    $env:ROOM_SCAN_ACCESS_TOKEN = [Convert]::ToBase64String($tokenBytes)
+}
+Write-Host "Room scan access token (enter in the iPhone app and web viewer): $env:ROOM_SCAN_ACCESS_TOKEN"
+
 $api = Start-Process powershell.exe -PassThru -WorkingDirectory $root -ArgumentList @(
     "-NoExit", "-Command",
     "& '$dotnetExe' run --project '$apiProject' --urls http://0.0.0.0:5080"

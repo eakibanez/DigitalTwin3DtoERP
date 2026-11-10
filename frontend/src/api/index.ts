@@ -30,6 +30,21 @@ export type Scene = {
   revision: string;
   entities: Array<{ id: string; type: string; x: number; y: number; z: number; confidence: number }>;
 };
+export type Building = { id: string; name: string };
+export type Floor = { id: string; buildingId: string; name: string };
+export type Room = { id: string; floorId: string; name: string };
+export type RoomSurface = { id: string; kind: "wall" | "door" | "window" | "opening"; transform: number[]; dimensions: number[] };
+export type RoomScan = {
+  scanId: string;
+  buildingId: string;
+  floorId: string;
+  roomId: string;
+  roomName: string;
+  capturedAt: string;
+  coordinateSystem: "roomplan-local-y-up-meters";
+  units: "meters";
+  surfaces: RoomSurface[];
+};
 
 export const api = {
   warehouses: () => get<Warehouse[]>("/api/v1/warehouses"),
@@ -40,6 +55,16 @@ export const api = {
   picking: () => get<unknown[]>("/api/v1/picking"),
   workOrders: () => get<WorkOrder[]>("/api/v1/work-orders"),
   scene: (warehouseId: string) => get<Scene>(`/api/v1/twin/scenes/${encodeURIComponent(warehouseId)}`),
+  buildings: () => get<Building[]>("/api/v1/buildings"),
+  floors: (buildingId: string) => get<Floor[]>(`/api/v1/buildings/${encodeURIComponent(buildingId)}/floors`),
+  rooms: (floorId: string) => get<Room[]>(`/api/v1/floors/${encodeURIComponent(floorId)}/rooms`),
+  latestRoomScan: async (roomId: string) => {
+    const response = await fetch(`${API_BASE}/api/v1/rooms/${encodeURIComponent(roomId)}/scans/latest`, {
+      headers: { "X-Room-Scan-Token": sessionStorage.getItem("roomScanAccessToken") ?? "" },
+    });
+    if (!response.ok) throw new Error(`/api/v1/rooms/${roomId}/scans/latest returned ${response.status}`);
+    return response.json() as Promise<RoomScan>;
+  },
   simulate: async (request: SimulationRequest) => {
     const response = await fetch(`${WORKER_BASE}/simulate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request) });
     if (!response.ok) throw new Error(`Position worker returned ${response.status}`);

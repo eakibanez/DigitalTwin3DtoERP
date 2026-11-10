@@ -66,6 +66,9 @@ services/position-worker/.venv/
 *.tsbuildinfo
 *.bak
 *.swp
+**/DerivedData/
+**/xcuserdata/
+*.xcuserstate
 
 # vcpkg
 vcpkg_installed/
