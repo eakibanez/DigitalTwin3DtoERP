@@ -20,6 +20,10 @@ class CameraUnavailable(RuntimeError):
     pass
 
 
+class RegistrationUnavailable(RuntimeError):
+    pass
+
+
 CAMERA_LOCK = threading.Lock()
 
 
@@ -187,3 +191,134 @@ def transform_points(
     translation = np.array([room_x, room_y, room_z], dtype=np.float32)
     room_points = points @ rotation.T + translation
     return np.round(room_points, decimals=4).tolist()
+
+
+def align_point_cloud(
+    source_points: list[list[float]],
+    target_points: list[list[float]],
+    *,
+    max_correspondence_distance: float = 0.3,
+    max_iterations: int = 30,
+) -> tuple[list[list[float]], np.ndarray, np.ndarray, dict[str, float | int]]:
+    source = np.asarray(source_points, dtype=np.float64)
+    target = np.asarray(target_points, dtype=np.float64)
+    if source.ndim != 2 or target.ndim != 2 or source.shape[1:] != (3,) or target.shape[1:] != (3,):
+        raise RegistrationUnavailable("Point clouds must contain 3D XYZ points.")
+    if len(source) < 30 or len(target) < 30 or not np.isfinite(source).all() or not np.isfinite(target).all():
+        raise RegistrationUnavailable("At least 30 finite points are required in each cloud for alignment.")
+
+    source_indices = np.linspace(0, len(source) - 1, min(len(source), 1200), dtype=int)
+    target_indices = np.linspace(0, len(target) - 1, min(len(target), 1800), dtype=int)
+    source_sample = source[source_indices]
+    target_sample = target[target_indices]
+    rotation = np.eye(3, dtype=np.float64)
+    translation = np.zeros(3, dtype=np.float64)
+
+    for _ in range(max_iterations):
+        transformed = source_sample @ rotation.T + translation
+        nearest, distances = _nearest_points(transformed, target_sample)
+        inliers = distances <= max_correspondence_distance
+        if np.count_nonzero(inliers) < 30:
+            raise RegistrationUnavailable("Not enough overlapping geometry; keep the camera close to the previous view.")
+
+        source_inliers = transformed[inliers]
+        target_inliers = nearest[inliers]
+        residuals = np.linalg.norm(source_inliers - target_inliers, axis=1)
+        median = float(np.median(residuals))
+        mad = float(np.median(np.abs(residuals - median)))
+        robust_limit = min(max_correspondence_distance, median + max(0.02, 2.5 * mad))
+        robust_inliers = residuals <= robust_limit
+        if np.count_nonzero(robust_inliers) < 30:
+            raise RegistrationUnavailable("Not enough reliable correspondences to align this view.")
+
+        moving = source_inliers[robust_inliers]
+        fixed = target_inliers[robust_inliers]
+        moving_center = moving.mean(axis=0)
+        fixed_center = fixed.mean(axis=0)
+        covariance = (moving - moving_center).T @ (fixed - fixed_center)
+        u, singular_values, vt = np.linalg.svd(covariance)
+        correction = vt.T @ u.T
+        if np.linalg.det(correction) < 0:
+            vt[-1, :] *= -1
+            correction = vt.T @ u.T
+        if singular_values[1] < 1e-8:
+            raise RegistrationUnavailable("The overlapping scene is too geometrically ambiguous to align.")
+
+        offset = fixed_center - correction @ moving_center
+        rotation = correction @ rotation
+        translation = correction @ translation + offset
+        if np.linalg.norm(offset) < 1e-4 and np.linalg.norm(correction - np.eye(3)) < 1e-4:
+            break
+
+    aligned_sample = source_sample @ rotation.T + translation
+    nearest, distances = _nearest_points(aligned_sample, target_sample)
+    inliers = distances <= max_correspondence_distance
+    correspondence_count = int(np.count_nonzero(inliers))
+    fitness = correspondence_count / len(source_sample)
+    rmse = float(np.sqrt(np.mean(np.square(distances[inliers])))) if correspondence_count else float("inf")
+    if correspondence_count < 30 or fitness < 0.2 or rmse > 0.08:
+        raise RegistrationUnavailable(
+            "Automatic alignment confidence is too low. Move less, keep more of the previous view visible, or use manual poses."
+        )
+
+    aligned = source @ rotation.T + translation
+    metrics: dict[str, float | int] = {
+        "fitness": round(fitness, 4),
+        "rmseMeters": round(rmse, 4),
+        "correspondences": correspondence_count,
+    }
+    return np.round(aligned, decimals=4).tolist(), rotation, translation, metrics
+
+
+def _nearest_points(source: np.ndarray, target: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    nearest_points = np.empty_like(source)
+    nearest_distances = np.empty(len(source), dtype=np.float64)
+    for start in range(0, len(source), 128):
+        batch = source[start : start + 128]
+        differences = batch[:, None, :] - target[None, :, :]
+        squared_distances = np.einsum("ijk,ijk->ij", differences, differences)
+        indices = np.argmin(squared_distances, axis=1)
+        nearest_points[start : start + len(batch)] = target[indices]
+        nearest_distances[start : start + len(batch)] = np.sqrt(squared_distances[np.arange(len(batch)), indices])
+    return nearest_points, nearest_distances
+
+
+def pose_from_transform(
+    original_pose: dict[str, float],
+    correction_rotation: np.ndarray,
+    correction_translation: np.ndarray,
+) -> dict[str, float]:
+    yaw, pitch, roll = map(
+        math.radians,
+        (original_pose["yawDegrees"], original_pose["pitchDegrees"], original_pose["rollDegrees"]),
+    )
+    cy, sy = math.cos(yaw), math.sin(yaw)
+    cp, sp = math.cos(pitch), math.sin(pitch)
+    cr, sr = math.cos(roll), math.sin(roll)
+    rotation = np.array(
+        [
+            [cy * cr + sy * sp * sr, -cy * sr + sy * sp * cr, sy * cp],
+            [cp * sr, cp * cr, -sp],
+            [-sy * cr + cy * sp * sr, sy * sr + cy * sp * cr, cy * cp],
+        ],
+        dtype=np.float64,
+    )
+    translation = np.array([original_pose["roomX"], original_pose["roomY"], original_pose["roomZ"]])
+    corrected_rotation = correction_rotation @ rotation
+    corrected_translation = correction_rotation @ translation + correction_translation
+    corrected_pitch = math.asin(max(-1.0, min(1.0, -corrected_rotation[1, 2])))
+    cosine_pitch = math.cos(corrected_pitch)
+    if abs(cosine_pitch) > 1e-6:
+        corrected_yaw = math.atan2(corrected_rotation[0, 2], corrected_rotation[2, 2])
+        corrected_roll = math.atan2(corrected_rotation[1, 0], corrected_rotation[1, 1])
+    else:
+        corrected_yaw = math.atan2(-corrected_rotation[2, 0], corrected_rotation[0, 0])
+        corrected_roll = 0.0
+    return {
+        "roomX": round(float(corrected_translation[0]), 4),
+        "roomY": round(float(corrected_translation[1]), 4),
+        "roomZ": round(float(corrected_translation[2]), 4),
+        "yawDegrees": round(math.degrees(corrected_yaw), 3),
+        "pitchDegrees": round(math.degrees(corrected_pitch), 3),
+        "rollDegrees": round(math.degrees(corrected_roll), 3),
+    }

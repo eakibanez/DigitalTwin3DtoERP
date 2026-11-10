@@ -62,7 +62,11 @@ export type UsbPointCloud = {
   captureCount: number;
   camera: string;
   points: number[][];
+  lastPose?: UsbCameraPose;
+  lastRegistration?: UsbRegistration;
 };
+export type UsbCameraPose = { roomX: number; roomY: number; roomZ: number; yawDegrees: number; pitchDegrees: number; rollDegrees: number };
+export type UsbRegistration = { method: "initial-pose" | "manual-pose" | "icp"; fitness?: number; rmseMeters?: number; correspondences?: number };
 
 export const api = {
   warehouses: () => get<Warehouse[]>("/api/v1/warehouses"),
@@ -93,18 +97,19 @@ export const api = {
   captureUsbRoom: async (
     roomId: string,
     token: string,
-    pose: { roomX: number; roomY: number; roomZ: number; yawDegrees: number; pitchDegrees: number; rollDegrees: number },
+    pose: UsbCameraPose,
+    autoAlign: boolean,
   ) => {
     const response = await fetch(`${WORKER_BASE}/position/usb-camera/rooms/${encodeURIComponent(roomId)}/capture`, {
       method: "POST",
       headers: { "content-type": "application/json", "X-Room-Scan-Token": token },
-      body: JSON.stringify(pose),
+      body: JSON.stringify({ ...pose, autoAlign }),
     });
     if (!response.ok) {
       const detail = await response.text();
       throw new Error(`USB camera capture returned ${response.status}: ${detail}`);
     }
-    return response.json() as Promise<{ pointCount: number; pointsAdded: number; captureCount: number; capturedAt: string }>;
+    return response.json() as Promise<{ pointCount: number; pointsAdded: number; captureCount: number; capturedAt: string; pose: UsbCameraPose; registration: UsbRegistration }>;
   },
   latestUsbRoom: async (roomId: string, token: string) => {
     const response = await fetch(`${WORKER_BASE}/position/usb-camera/rooms/${encodeURIComponent(roomId)}/latest`, {

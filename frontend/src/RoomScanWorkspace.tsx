@@ -59,6 +59,7 @@ export function RoomScanWorkspace() {
   const [pointCloud, setPointCloud] = useState<UsbPointCloud>();
   const [scanToken, setScanToken] = useState(() => sessionStorage.getItem("roomScanAccessToken") ?? "");
   const [cameraStatus, setCameraStatus] = useState<UsbCameraStatus>();
+  const [autoAlign, setAutoAlign] = useState(true);
   const [cameraPose, setCameraPose] = useState({ roomX: 0, roomY: 1.2, roomZ: 0, yawDegrees: 0, pitchDegrees: 0, rollDegrees: 0 });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -101,7 +102,10 @@ export function RoomScanWorkspace() {
     api.latestRoomScan(roomId).then(setScan).catch(cause => {
       if (!String(cause).includes("404")) setError(String(cause));
     });
-    api.latestUsbRoom(roomId, scanToken).then(setPointCloud).catch(cause => {
+    api.latestUsbRoom(roomId, scanToken).then(cloud => {
+      setPointCloud(cloud);
+      if (cloud.lastPose) setCameraPose(cloud.lastPose);
+    }).catch(cause => {
       if (!String(cause).includes("404")) setError(String(cause));
     });
   }, [roomId, scanToken]);
@@ -148,7 +152,8 @@ export function RoomScanWorkspace() {
     setLoading(true);
     setError("");
     try {
-      await api.captureUsbRoom(roomId, scanToken, cameraPose);
+      const capture = await api.captureUsbRoom(roomId, scanToken, cameraPose, autoAlign);
+      setCameraPose(capture.pose);
       setPointCloud(await api.latestUsbRoom(roomId, scanToken));
     } catch (cause) {
       setError(String(cause));
@@ -170,14 +175,16 @@ export function RoomScanWorkspace() {
       <Text weight="semibold">Orbbec USB RGB-D camera</Text>
       <Button disabled={loading} onClick={checkUsbCamera}>Check USB camera</Button>
       {cameraStatus && <p className={cameraStatus.deviceConnected ? "event" : "warn"}>{cameraStatus.sdk}: {cameraStatus.deviceConnected ? cameraStatus.devices.join(", ") : cameraStatus.detail}</p>}
+      <label><input type="checkbox" checked={autoAlign} onChange={event => setAutoAlign(event.target.checked)} /> Auto-align overlapping views (ICP)</label>
+      <p className="room-hint">Set an approximate pose for the first capture. Later captures refine the last pose automatically when views overlap; move the camera in small steps and keep the previous scene visible.</p>
       <label>Camera room X (m)<input type="number" step="0.1" value={cameraPose.roomX} onChange={event => setCameraPose({ ...cameraPose, roomX: Number(event.target.value) })} /></label>
       <label>Camera height Y (m)<input type="number" step="0.1" value={cameraPose.roomY} onChange={event => setCameraPose({ ...cameraPose, roomY: Number(event.target.value) })} /></label>
       <label>Camera room Z (m)<input type="number" step="0.1" value={cameraPose.roomZ} onChange={event => setCameraPose({ ...cameraPose, roomZ: Number(event.target.value) })} /></label>
       <label>Yaw (degrees)<input type="number" step="5" value={cameraPose.yawDegrees} onChange={event => setCameraPose({ ...cameraPose, yawDegrees: Number(event.target.value) })} /></label>
       <label>Pitch (degrees)<input type="number" step="5" value={cameraPose.pitchDegrees} onChange={event => setCameraPose({ ...cameraPose, pitchDegrees: Number(event.target.value) })} /></label>
       <label>Roll (degrees)<input type="number" step="5" value={cameraPose.rollDegrees} onChange={event => setCameraPose({ ...cameraPose, rollDegrees: Number(event.target.value) })} /></label>
-      <Button disabled={!roomId || loading || cameraStatus?.deviceConnected !== true} appearance="primary" onClick={captureUsbCamera}>Capture USB depth view and add points</Button>
-      <p className="room-hint">For a room cloud, capture from multiple positions and enter each camera pose in room coordinates. This prototype does not estimate camera motion (SLAM); pose errors cause misaligned point clouds.</p>
+      <Button disabled={!roomId || loading || cameraStatus?.deviceConnected !== true} appearance="primary" onClick={captureUsbCamera}>Capture depth and align view</Button>
+      <p className="room-hint">ICP is local point-cloud registration, not full SLAM: large moves, weak overlap, or repetitive/flat surfaces can fail or drift. Failed alignments are rejected without saving points; turn off auto-align to place a view manually.</p>
       <p className="room-hint">LiDAR iPhone RoomPlan scans remain supported; USB depth points and RoomPlan surfaces can be shown together.</p>
       {error && <p className="error">{error}</p>}
     </aside>
@@ -209,6 +216,8 @@ export function RoomScanWorkspace() {
         <p><b>USB captures:</b> {pointCloud.captureCount}</p>
         <p><b>Point count:</b> {pointCloud.points.length}</p>
         <p><b>Camera:</b> {pointCloud.camera}</p>
+        <p><b>Last alignment:</b> {pointCloud.lastRegistration?.method ?? "legacy scan"}{pointCloud.lastRegistration?.rmseMeters !== undefined ? ` · RMSE ${pointCloud.lastRegistration.rmseMeters} m` : ""}</p>
+        {pointCloud.lastRegistration?.fitness !== undefined && <p><b>Overlap fitness:</b> {Math.round(pointCloud.lastRegistration.fitness * 100)}%</p>}
         <p><b>Captured:</b> {new Date(pointCloud.capturedAt).toLocaleString()}</p>
         <p><b>Coordinate system:</b> {pointCloud.coordinateSystem}</p>
       </>}

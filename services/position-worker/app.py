@@ -19,7 +19,14 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, Response, Upload
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from usb_camera import CameraUnavailable, camera_status, capture_depth_points
+from usb_camera import (
+    CameraUnavailable,
+    RegistrationUnavailable,
+    align_point_cloud,
+    camera_status,
+    capture_depth_points,
+    pose_from_transform,
+)
 
 app = FastAPI(title="Position Simulation Worker", version="1.1.0")
 app.add_middleware(
@@ -49,6 +56,7 @@ class UsbCameraCapture(BaseModel):
     yawDegrees: float = Field(default=0, ge=-360, le=360, allow_inf_nan=False)
     pitchDegrees: float = Field(default=0, ge=-90, le=90, allow_inf_nan=False)
     rollDegrees: float = Field(default=0, ge=-90, le=90, allow_inf_nan=False)
+    autoAlign: bool = True
 
 
 def validate_room_scan_token(token: str | None) -> None:
@@ -226,7 +234,6 @@ def capture_usb_camera_room(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     directory, latest_path = usb_scan_paths(room_id)
-    directory.mkdir(parents=True, exist_ok=True)
     with USB_SCAN_LOCK:
         if latest_path.is_file():
             scan = json.loads(latest_path.read_text(encoding="utf-8"))
@@ -239,6 +246,16 @@ def capture_usb_camera_room(
                 "captureCount": 0,
             }
 
+        pose = request.model_dump(exclude={"autoAlign"})
+        registration: dict[str, Any] = {"method": "initial-pose" if not scan["points"] else "manual-pose"}
+        if request.autoAlign and scan["points"]:
+            try:
+                points, correction_rotation, correction_translation, metrics = align_point_cloud(points, scan["points"])
+            except RegistrationUnavailable as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            pose = pose_from_transform(pose, correction_rotation, correction_translation)
+            registration = {"method": "icp", **metrics}
+
         scan["points"].extend(points)
         if len(scan["points"]) > 40000:
             reduction_stride = (len(scan["points"]) + 39999) // 40000
@@ -246,6 +263,9 @@ def capture_usb_camera_room(
         scan["captureCount"] += 1
         scan["capturedAt"] = datetime.now(timezone.utc).isoformat()
         scan["camera"] = "Orbbec RGB-D"
+        scan["lastPose"] = pose
+        scan["lastRegistration"] = registration
+        directory.mkdir(parents=True, exist_ok=True)
         temporary_path = directory / "latest.tmp"
         temporary_path.write_text(json.dumps(scan, separators=(",", ":")), encoding="utf-8")
         temporary_path.replace(latest_path)
@@ -258,6 +278,8 @@ def capture_usb_camera_room(
         "pointCount": len(scan["points"]),
         "coordinateSystem": scan["coordinateSystem"],
         "camera": scan["camera"],
+        "pose": pose,
+        "registration": registration,
     }
 
 
