@@ -67,9 +67,23 @@ The **Building / floor / room 3D** view displays the latest RoomPlan geometry up
 
 RoomPlan requires a LiDAR-capable iPhone Pro and a Mac with Xcode to build/sign the native app. On the Mac, open `ios/RoomPlanScanner/RoomPlanScanner.xcodeproj`, set your Apple development team in Signing & Capabilities, connect the iPhone, and run the `RoomPlanScanner` target. In the app, select the building/floor/room, set **API base URL** to `https://<current-cloudflare-tunnel-host>/api/v1`, enter the room scan access token printed by `start-demo.ps1`, scan the room, finish the scan, and upload it. The URL must be the current HTTPS URL printed by `.\scripts\start-demo.ps1 -Tunnel`; it changes when the tunnel restarts. On the web page, open **Building / floor / room 3D**, enter that same token (held only in the current browser session), and refresh the latest scan.
 
+## USB RGB-D camera room point cloud
+
+The room viewer also supports an Orbbec USB RGB-D camera such as Gemini 2, using the official [Orbbec Python SDK v2 wrapper](https://github.com/orbbec/pyorbbecsdk). Connect the camera to the same Windows computer running the position worker using a USB 3.0 data cable/port. Install the optional SDK wheel without its example-viewer dependencies (the project already uses OpenCV contrib):
+
+```powershell
+& .\services\position-worker\.venv\Scripts\python.exe -m pip install --no-deps -r .\services\position-worker\requirements-usb-camera.txt
+```
+
+Restart `start-demo.ps1` after installation. In **Building / floor / room 3D**, enter the room scan token, press **Check USB camera**, set the camera pose in room-local meters/degrees, then press **Capture USB depth view and add points**. Repeat from multiple positions and orientations; the point cloud is accumulated per selected room and displayed with the RoomPlan surfaces if present.
+
+Each capture uses the depth stream and the SDK-provided depth intrinsics to project valid samples into 3D. Camera poses are entered manually; this prototype does **not** implement visual/IMU SLAM, automatic camera tracking, room-plane extraction, or a watertight mesh. Incorrect manual poses will misalign accumulated views. A single capture is only one viewpoint, not a complete room reconstruction. Use RoomPlan for automatic room surfaces, or add a separately validated SLAM/registration pipeline before claiming automatic whole-room scans. The SDK package includes prebuilt Windows x64 wheels for supported Python versions, but the physical camera and its USB 3 connection are required to test live capture.
+
 The demo API provides `GET /api/v1/buildings`, `GET /api/v1/buildings/{buildingId}/floors`, `GET /api/v1/floors/{floorId}/rooms`, `POST /api/v1/rooms/{roomId}/scans`, and `GET /api/v1/rooms/{roomId}/scans/latest`. Scan upload/latest require the `X-Room-Scan-Token` header. The launcher generates a random 256-bit token if `ROOM_SCAN_ACCESS_TOKEN` is not set; the token is not stored in the repository. The API accepts at most 500 validated surfaces and 1 MB per request. Scan JSON is saved outside the repository in `%LOCALAPPDATA%\DigitalTwin3D\room-scans` (override with `ROOM_SCAN_DATA_DIR`); each room retains versioned JSON plus a latest pointer.
+
+USB camera endpoints are `GET /position/usb-camera/status`, `POST /position/usb-camera/rooms/{roomId}/capture`, and `GET /position/usb-camera/rooms/{roomId}/latest`; all require the same `X-Room-Scan-Token`. USB point clouds are stored under the worker's ignored runtime-data directory.
 
 This first milestone reconstructs room geometry; it does not use a single photo to infer depth and does not apply photographs as wall textures. The RoomPlan live camera view is used while scanning. For a non-LiDAR iPhone or photo-textured reconstruction, a separate photogrammetry/depth workflow is required. The demo endpoints currently use synthetic building/floor/room data and do not yet enforce production authentication.
 
 ## Validation
-`npm --prefix frontend run build`, `dotnet build services/integration-api`, and `python -m compileall services/position-worker`.
+`npm --prefix frontend run build`, `dotnet build services/integration-api`, `python -m compileall services/position-worker`, and `python -m unittest discover -s services/position-worker -p test_usb_camera.py`.

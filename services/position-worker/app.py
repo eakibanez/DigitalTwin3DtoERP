@@ -1,9 +1,11 @@
 from datetime import datetime, timezone
+import hmac
 import json
 import os
 from pathlib import Path
 import random
 import re
+import threading
 from typing import Any
 
 try:
@@ -13,9 +15,11 @@ except ImportError:  # OpenCV is optional so the worker still has a deterministi
     cv2 = None
     np = None
 
-from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+
+from usb_camera import CameraUnavailable, camera_status, capture_depth_points
 
 app = FastAPI(title="Position Simulation Worker", version="1.1.0")
 app.add_middleware(
@@ -27,6 +31,7 @@ app.add_middleware(
 
 RUNTIME_DATA = Path(os.environ.get("POSITION_RUNTIME_DATA_DIR", Path(__file__).parent / "runtime-data"))
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+USB_SCAN_LOCK = threading.Lock()
 
 
 class Simulation(BaseModel):
@@ -35,6 +40,28 @@ class Simulation(BaseModel):
     reflectorCount: int = Field(4, ge=1, le=32)
     receiverCount: int = Field(1, ge=1, le=8)
     calibration: str = "standard-v1"
+
+
+class UsbCameraCapture(BaseModel):
+    roomX: float = Field(ge=-100, le=100, allow_inf_nan=False)
+    roomY: float = Field(ge=-100, le=100, allow_inf_nan=False)
+    roomZ: float = Field(ge=-100, le=100, allow_inf_nan=False)
+    yawDegrees: float = Field(default=0, ge=-360, le=360, allow_inf_nan=False)
+    pitchDegrees: float = Field(default=0, ge=-90, le=90, allow_inf_nan=False)
+    rollDegrees: float = Field(default=0, ge=-90, le=90, allow_inf_nan=False)
+
+
+def validate_room_scan_token(token: str | None) -> None:
+    expected = os.environ.get("ROOM_SCAN_ACCESS_TOKEN", "")
+    if not expected:
+        raise HTTPException(status_code=503, detail="Room scan access is not configured.")
+    if token is None or not hmac.compare_digest(token, expected):
+        raise HTTPException(status_code=401, detail="A valid room scan access token is required.")
+
+
+def usb_scan_paths(room_id: str) -> tuple[Path, Path]:
+    directory = RUNTIME_DATA / "usb-camera" / safe_id(room_id, "roomId")
+    return directory, directory / "latest.json"
 
 
 def parse_calibration(preset: str, matrix_json: str | None, distortion_json: str | None) -> tuple[Any, Any, str]:
@@ -169,6 +196,78 @@ def capture_paths(warehouse_id: str):
 @app.get("/health/live")
 def live():
     return {"status": "live"}
+
+
+@app.get("/position/usb-camera/status")
+def usb_camera_health(x_room_scan_token: str | None = Header(default=None)):
+    validate_room_scan_token(x_room_scan_token)
+    return camera_status()
+
+
+@app.post("/position/usb-camera/rooms/{room_id}/capture")
+def capture_usb_camera_room(
+    room_id: str,
+    request: UsbCameraCapture,
+    x_room_scan_token: str | None = Header(default=None),
+):
+    validate_room_scan_token(x_room_scan_token)
+    safe_id(room_id, "roomId")
+
+    try:
+        points = capture_depth_points(
+            room_x=request.roomX,
+            room_y=request.roomY,
+            room_z=request.roomZ,
+            yaw_degrees=request.yawDegrees,
+            pitch_degrees=request.pitchDegrees,
+            roll_degrees=request.rollDegrees,
+        )
+    except CameraUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    directory, latest_path = usb_scan_paths(room_id)
+    directory.mkdir(parents=True, exist_ok=True)
+    with USB_SCAN_LOCK:
+        if latest_path.is_file():
+            scan = json.loads(latest_path.read_text(encoding="utf-8"))
+        else:
+            scan = {
+                "roomId": room_id,
+                "coordinateSystem": "room-local-y-up-meters",
+                "units": "meters",
+                "points": [],
+                "captureCount": 0,
+            }
+
+        scan["points"].extend(points)
+        if len(scan["points"]) > 40000:
+            reduction_stride = (len(scan["points"]) + 39999) // 40000
+            scan["points"] = scan["points"][::reduction_stride]
+        scan["captureCount"] += 1
+        scan["capturedAt"] = datetime.now(timezone.utc).isoformat()
+        scan["camera"] = "Orbbec RGB-D"
+        temporary_path = directory / "latest.tmp"
+        temporary_path.write_text(json.dumps(scan, separators=(",", ":")), encoding="utf-8")
+        temporary_path.replace(latest_path)
+
+    return {
+        "roomId": room_id,
+        "capturedAt": scan["capturedAt"],
+        "captureCount": scan["captureCount"],
+        "pointsAdded": len(points),
+        "pointCount": len(scan["points"]),
+        "coordinateSystem": scan["coordinateSystem"],
+        "camera": scan["camera"],
+    }
+
+
+@app.get("/position/usb-camera/rooms/{room_id}/latest")
+def latest_usb_camera_room(room_id: str, x_room_scan_token: str | None = Header(default=None)):
+    validate_room_scan_token(x_room_scan_token)
+    _, latest_path = usb_scan_paths(room_id)
+    if not latest_path.is_file():
+        raise HTTPException(status_code=404, detail="No USB camera scan found for this room.")
+    return json.loads(latest_path.read_text(encoding="utf-8"))
 
 
 @app.post("/simulate")

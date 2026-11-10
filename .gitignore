@@ -60,6 +60,7 @@ compile_commands.json
 *.log
 services/position-worker/runtime-data/
 services/position-worker/.venv/
+services/position-worker/Log/
 **/__pycache__/
 *.py[cod]
 .pytest_cache/

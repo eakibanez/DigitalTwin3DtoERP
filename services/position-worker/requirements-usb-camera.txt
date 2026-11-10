@@ -1,0 +1,2 @@
+# Install with pip --no-deps; the SDK's example GUI extras conflict with OpenCV contrib.
+pyorbbecsdk2==2.1.3

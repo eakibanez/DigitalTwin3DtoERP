@@ -39,6 +39,7 @@ The existing PHP/IIS EIS-ERP remains the system of record. A new ASP.NET Core We
 ### Components
 - **Frontend**: React + TypeScript, React Three Fiber/Three.js, Fluent UI v9. Hosts scene, ERP panels, parameter editor, replay controls, and API client.
 - **iOS scanner**: SwiftUI + Apple RoomPlan on a LiDAR-capable iPhone. Uploads versioned room surfaces, transforms, and dimensions in meters to the Integration API.
+- **USB depth capture**: Python position worker with the official Orbbec SDK v2 wrapper. Captures Gemini 2 depth frames, projects them using device intrinsics, and accumulates room-local point clouds at manually entered camera poses.
 - **Integration API**: ASP.NET Core Web API. Validates Entra tokens, exposes versioned `/api/v1` endpoints, maps ERP contracts, owns demo orchestration and audit metadata.
 - **AI worker**: Python + FastAPI. Implements PDF-derived reflector/receiver calculation, noise and calibration models, confidence scoring, deterministic seed/replay, and health endpoints.
 - **Existing ERP**: PHP/IIS application and SQL Server/Azure SQL source-of-record boundary. Access is through an adapter/repository and documented read contracts.
@@ -48,6 +49,7 @@ The existing PHP/IIS EIS-ERP remains the system of record. A new ASP.NET Core We
 - Frontend calls only the ASP.NET Core API; it never calls SQL, Blob Storage, PHP internals, or the AI worker directly.
 - ASP.NET Core calls the ERP adapter for ERP data and calls the AI worker for simulation jobs.
 - AI worker returns versioned simulation results/events; it does not own ERP records or identity.
+- The USB depth prototype does not estimate camera pose or perform SLAM; a validated registration pipeline is required before automatic multi-view reconstruction.
 - Blob access uses short-lived server-issued URLs or API proxying; containers are private.
 - All requests carry `traceId`, authenticated subject, and schema version where applicable.
 
@@ -67,6 +69,7 @@ The existing PHP/IIS EIS-ERP remains the system of record. A new ASP.NET Core We
 - `GET /api/v1/assets/{assetId}/download-url`
 - `GET /api/v1/buildings`, `GET /api/v1/buildings/{buildingId}/floors`, `GET /api/v1/floors/{floorId}/rooms`
 - `POST /api/v1/rooms/{roomId}/scans`, `GET /api/v1/rooms/{roomId}/scans/latest`
+- `GET /position/usb-camera/status`, `POST /position/usb-camera/rooms/{roomId}/capture`, `GET /position/usb-camera/rooms/{roomId}/latest`
 - `GET /health/live`, `GET /health/ready`
 
 Commands that could change ERP state are deferred or protected behind an explicit feature flag and separate authorization policy.
@@ -143,6 +146,7 @@ Required configuration includes Entra tenant/client/audience, ERP base URL and s
 - SQL migration tests and synthetic fixture verification.
 - E2E smoke test: sign in → choose warehouse → load scene → inspect ERP entity → edit parameters → run/replay → see confidence/events.
 - Room scan contract test: select building/floor/room → upload bounded RoomPlan geometry → retrieve latest scan → render surfaces in 3D.
+- USB depth capture contract test: verify Orbbec SDK/device status, project a calibrated depth frame, accumulate manually registered room points, and render the cloud.
 - Security checks: dependency scanning, secret scanning, OWASP API cases, token and authorization negative tests.
 
 ### Acceptance criteria

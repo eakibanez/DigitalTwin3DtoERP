@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
-import { Matrix4 } from "three";
+import { BufferGeometry, Float32BufferAttribute, Matrix4 } from "three";
 import { Button, Text } from "@fluentui/react-components";
-import { api, Building, Floor, Room, RoomScan } from "./api";
+import { api, Building, Floor, Room, RoomScan, UsbCameraStatus, UsbPointCloud } from "./api";
 import "./room-scan.css";
 
 const colors = { wall: "#9bb7c8", door: "#f0a04b", window: "#42d9ff", opening: "#c690ff" };
@@ -29,6 +29,25 @@ function DemoRoom() {
   </group>;
 }
 
+function RoomPoints({ cloud }: { cloud: UsbPointCloud }) {
+  const geometry = useMemo(() => {
+    const positions = new Float32Array(cloud.points.length * 3);
+    const colors = new Float32Array(cloud.points.length * 3);
+    cloud.points.forEach((point, index) => {
+      positions.set(point, index * 3);
+      const depth = Math.max(0, Math.min(1, Math.hypot(point[0], point[1], point[2]) / 8));
+      colors.set([0.1 + depth * 0.9, 0.85 - depth * 0.55, 1 - depth * 0.9], index * 3);
+    });
+    const result = new BufferGeometry();
+    result.setAttribute("position", new Float32BufferAttribute(positions, 3));
+    result.setAttribute("color", new Float32BufferAttribute(colors, 3));
+    result.computeBoundingSphere();
+    return result;
+  }, [cloud]);
+  useEffect(() => () => geometry.dispose(), [geometry]);
+  return <points geometry={geometry}><pointsMaterial size={0.025} vertexColors sizeAttenuation /></points>;
+}
+
 export function RoomScanWorkspace() {
   const [buildings, setBuildings] = useState<Building[]>([]);
   const [floors, setFloors] = useState<Floor[]>([]);
@@ -37,7 +56,10 @@ export function RoomScanWorkspace() {
   const [floorId, setFloorId] = useState("");
   const [roomId, setRoomId] = useState("");
   const [scan, setScan] = useState<RoomScan>();
+  const [pointCloud, setPointCloud] = useState<UsbPointCloud>();
   const [scanToken, setScanToken] = useState(() => sessionStorage.getItem("roomScanAccessToken") ?? "");
+  const [cameraStatus, setCameraStatus] = useState<UsbCameraStatus>();
+  const [cameraPose, setCameraPose] = useState({ roomX: 0, roomY: 1.2, roomZ: 0, yawDegrees: 0, pitchDegrees: 0, rollDegrees: 0 });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -73,9 +95,13 @@ export function RoomScanWorkspace() {
   useEffect(() => {
     if (!roomId) return;
     setScan(undefined);
+    setPointCloud(undefined);
     setError("");
     if (!scanToken) return;
     api.latestRoomScan(roomId).then(setScan).catch(cause => {
+      if (!String(cause).includes("404")) setError(String(cause));
+    });
+    api.latestUsbRoom(roomId, scanToken).then(setPointCloud).catch(cause => {
       if (!String(cause).includes("404")) setError(String(cause));
     });
   }, [roomId, scanToken]);
@@ -98,6 +124,39 @@ export function RoomScanWorkspace() {
     }
   }
 
+  async function checkUsbCamera() {
+    if (!scanToken) {
+      setError("Enter the room scan access token printed by start-demo.ps1.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      setCameraStatus(await api.usbCameraStatus(scanToken));
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function captureUsbCamera() {
+    if (!roomId || !scanToken) {
+      setError("Select a room and enter the room scan access token.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      await api.captureUsbRoom(roomId, scanToken, cameraPose);
+      setPointCloud(await api.latestUsbRoom(roomId, scanToken));
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   const selectedRoom = rooms.find(room => room.id === roomId);
   return <section className="room-workspace">
     <aside className="room-controls">
@@ -107,7 +166,19 @@ export function RoomScanWorkspace() {
       <label>Room<select value={roomId} onChange={event => setRoomId(event.target.value)}><option value="">Select room</option>{rooms.map(room => <option key={room.id} value={room.id}>{room.name}</option>)}</select></label>
       <label>Room scan access token<input type="password" autoComplete="off" value={scanToken} onChange={event => { setScanToken(event.target.value); sessionStorage.setItem("roomScanAccessToken", event.target.value); }} /></label>
       <Button disabled={!roomId || loading} onClick={refreshScan}>{loading ? "Refreshing…" : "Refresh latest scan"}</Button>
-      <p className="room-hint">Scan with the iOS RoomPlan app on a LiDAR iPhone. The native app uploads measured room surfaces in meters; this viewer does not infer dimensions from a single photo.</p>
+      <hr />
+      <Text weight="semibold">Orbbec USB RGB-D camera</Text>
+      <Button disabled={loading} onClick={checkUsbCamera}>Check USB camera</Button>
+      {cameraStatus && <p className={cameraStatus.deviceConnected ? "event" : "warn"}>{cameraStatus.sdk}: {cameraStatus.deviceConnected ? cameraStatus.devices.join(", ") : cameraStatus.detail}</p>}
+      <label>Camera room X (m)<input type="number" step="0.1" value={cameraPose.roomX} onChange={event => setCameraPose({ ...cameraPose, roomX: Number(event.target.value) })} /></label>
+      <label>Camera height Y (m)<input type="number" step="0.1" value={cameraPose.roomY} onChange={event => setCameraPose({ ...cameraPose, roomY: Number(event.target.value) })} /></label>
+      <label>Camera room Z (m)<input type="number" step="0.1" value={cameraPose.roomZ} onChange={event => setCameraPose({ ...cameraPose, roomZ: Number(event.target.value) })} /></label>
+      <label>Yaw (degrees)<input type="number" step="5" value={cameraPose.yawDegrees} onChange={event => setCameraPose({ ...cameraPose, yawDegrees: Number(event.target.value) })} /></label>
+      <label>Pitch (degrees)<input type="number" step="5" value={cameraPose.pitchDegrees} onChange={event => setCameraPose({ ...cameraPose, pitchDegrees: Number(event.target.value) })} /></label>
+      <label>Roll (degrees)<input type="number" step="5" value={cameraPose.rollDegrees} onChange={event => setCameraPose({ ...cameraPose, rollDegrees: Number(event.target.value) })} /></label>
+      <Button disabled={!roomId || loading || cameraStatus?.deviceConnected !== true} appearance="primary" onClick={captureUsbCamera}>Capture USB depth view and add points</Button>
+      <p className="room-hint">For a room cloud, capture from multiple positions and enter each camera pose in room coordinates. This prototype does not estimate camera motion (SLAM); pose errors cause misaligned point clouds.</p>
+      <p className="room-hint">LiDAR iPhone RoomPlan scans remain supported; USB depth points and RoomPlan surfaces can be shown together.</p>
       {error && <p className="error">{error}</p>}
     </aside>
     <div className="room-stage">
@@ -115,22 +186,31 @@ export function RoomScanWorkspace() {
         <ambientLight intensity={1.4} />
         <directionalLight position={[4, 6, 3]} intensity={1.5} />
         <gridHelper args={[12, 12, "#315064", "#182b37"]} />
-        {scan ? <ScannedRoom scan={scan} /> : <DemoRoom />}
+        {scan && <ScannedRoom scan={scan} />}
+        {pointCloud && <RoomPoints cloud={pointCloud} />}
+        {!scan && !pointCloud && <DemoRoom />}
         <OrbitControls makeDefault target={[0, 1, 0]} />
       </Canvas>
-      <div className="room-stage-label">{scan ? `${selectedRoom?.name ?? scan.roomName} · RoomPlan scan · meters` : "Demo preview — not measured"}</div>
+      <div className="room-stage-label">{pointCloud ? `${selectedRoom?.name ?? roomId} · USB depth point cloud · ${pointCloud.points.length} points · ${pointCloud.captureCount} captures` : scan ? `${selectedRoom?.name ?? scan.roomName} · RoomPlan scan · meters` : "Demo preview — not measured"}</div>
     </div>
     <aside className="room-details">
       <Text size={500} weight="semibold">Scan details</Text>
       <p><b>Building:</b> {buildings.find(item => item.id === buildingId)?.name ?? "—"}</p>
       <p><b>Floor:</b> {floors.find(item => item.id === floorId)?.name ?? "—"}</p>
       <p><b>Room:</b> {selectedRoom?.name ?? "—"}</p>
-      <p><b>Scan status:</b> {scan ? "Measured geometry" : "No scan uploaded"}</p>
+      <p><b>Scan status:</b> {scan || pointCloud ? "Measured geometry" : "No scan uploaded"}</p>
       {scan && <>
         <p><b>Captured:</b> {new Date(scan.capturedAt).toLocaleString()}</p>
         <p><b>Surfaces:</b> {scan.surfaces.length}</p>
         <p><b>Scan ID:</b> {scan.scanId}</p>
         <p><b>Coordinate system:</b> {scan.coordinateSystem}</p>
+      </>}
+      {pointCloud && <>
+        <p><b>USB captures:</b> {pointCloud.captureCount}</p>
+        <p><b>Point count:</b> {pointCloud.points.length}</p>
+        <p><b>Camera:</b> {pointCloud.camera}</p>
+        <p><b>Captured:</b> {new Date(pointCloud.capturedAt).toLocaleString()}</p>
+        <p><b>Coordinate system:</b> {pointCloud.coordinateSystem}</p>
       </>}
     </aside>
   </section>;

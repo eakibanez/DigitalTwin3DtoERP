@@ -15,7 +15,8 @@ export type Inventory = { itemId: string; quantity: number; status: string };
 export type SimulationRequest = { seed: number; noise: number; reflectorCount: number; receiverCount: number; calibration: string; calibrationPreset?: string; cameraMatrix?: string; distortionCoefficients?: string };
 export type SimulationResult = { algorithmVersion: string; seed: number; events: Array<{ sequence: number; x: number; y: number; z: number; confidence: number; status: string }>; dataStatus: string };
 export type PhotoLocationResult = SimulationResult & {
-  warehouseId: string; itemId: string; capturedAt: string;
+  warehouseId: string; itemId: string;   capturedAt: string;
+  captureCount: number;
   image: { filename: string; contentType: string; bytes: number; url: string };
   detectionStatus: "opencv-unavailable" | "no-marker" | "marker-detected";
   positionStatus: "simulated" | "measured-image-coordinates";
@@ -45,6 +46,23 @@ export type RoomScan = {
   units: "meters";
   surfaces: RoomSurface[];
 };
+export type UsbCameraStatus = {
+  sdk: string;
+  sdkAvailable: boolean;
+  sdkVersion?: string;
+  deviceConnected: boolean;
+  devices: string[];
+  detail: string;
+};
+export type UsbPointCloud = {
+  roomId: string;
+  coordinateSystem: "room-local-y-up-meters";
+  units: "meters";
+  capturedAt: string;
+  captureCount: number;
+  camera: string;
+  points: number[][];
+};
 
 export const api = {
   warehouses: () => get<Warehouse[]>("/api/v1/warehouses"),
@@ -64,6 +82,36 @@ export const api = {
     });
     if (!response.ok) throw new Error(`/api/v1/rooms/${roomId}/scans/latest returned ${response.status}`);
     return response.json() as Promise<RoomScan>;
+  },
+  usbCameraStatus: async (token: string) => {
+    const response = await fetch(`${WORKER_BASE}/position/usb-camera/status`, {
+      headers: { "X-Room-Scan-Token": token },
+    });
+    if (!response.ok) throw new Error(`USB camera status returned ${response.status}`);
+    return response.json() as Promise<UsbCameraStatus>;
+  },
+  captureUsbRoom: async (
+    roomId: string,
+    token: string,
+    pose: { roomX: number; roomY: number; roomZ: number; yawDegrees: number; pitchDegrees: number; rollDegrees: number },
+  ) => {
+    const response = await fetch(`${WORKER_BASE}/position/usb-camera/rooms/${encodeURIComponent(roomId)}/capture`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "X-Room-Scan-Token": token },
+      body: JSON.stringify(pose),
+    });
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(`USB camera capture returned ${response.status}: ${detail}`);
+    }
+    return response.json() as Promise<{ pointCount: number; pointsAdded: number; captureCount: number; capturedAt: string }>;
+  },
+  latestUsbRoom: async (roomId: string, token: string) => {
+    const response = await fetch(`${WORKER_BASE}/position/usb-camera/rooms/${encodeURIComponent(roomId)}/latest`, {
+      headers: { "X-Room-Scan-Token": token },
+    });
+    if (!response.ok) throw new Error(`Latest USB camera scan returned ${response.status}`);
+    return response.json() as Promise<UsbPointCloud>;
   },
   simulate: async (request: SimulationRequest) => {
     const response = await fetch(`${WORKER_BASE}/simulate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request) });
